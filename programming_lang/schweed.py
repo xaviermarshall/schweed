@@ -1,13 +1,13 @@
 
-###########################################
+####################################################################
 #DIGITS
-###########################################
+####################################################################
 
 DIGITS = '0123456789'
 
-###########################################
+####################################################################
 #ERRORS
-###########################################
+####################################################################
 
 class Error:
     def __init__(self, pos_start, pos_end, error_name, details):
@@ -29,9 +29,9 @@ class InvalidSyntaxError(Error):
     def __init__(self, pos_start, pos_end, details=''):
         super().__init__(pos_start, pos_end, 'Invalid Syntax', details)
 
-###########################################
+####################################################################
 #POSITION
-###########################################
+####################################################################
 
 class Position:
     def __init__(self, idx, ln, col, fn, ftxt):
@@ -54,9 +54,9 @@ class Position:
     def copy(self):
         return Position(self.idx, self.ln, self.col, self.fn, self.ftxt)
         
-###########################################
+####################################################################
 #TOKENS
-###########################################
+####################################################################
 
 TT_INT      = 'INT'
 TT_FLOAT    = 'FLOAT'
@@ -69,6 +69,7 @@ TT_RPAREN   = 'RPAREN'
 TT_LSQUIRLY = 'LSQUIRLY'
 TT_RSQUIRLY = 'RSQUIRLY'
 TT_EXP      = 'EXP'
+TT_MODULO   = 'MODULO'
 TT_EOF      = 'EOF'
 
 class Token:
@@ -88,9 +89,9 @@ class Token:
         if self.value: return f'{self.type}:{self.value}'
         return f'{self.type}'
 
-###########################################
+####################################################################
 #LEXER
-###########################################
+####################################################################
 
 class Lexer:
     def __init__(self, fn, text):
@@ -140,6 +141,9 @@ class Lexer:
                 self.advance()
             elif self.current_char == '^':
                 tokens.append(Token(TT_EXP, pos_start=self.pos))
+                self.advance()
+            elif self.current_char == '%':
+                tokens.append(Token(TT_MODULO, pos_start=self.pos))
                 self.advance()
             else:
                 pos_start = self.pos.copy()
@@ -255,17 +259,11 @@ class Parser:
                 )
         return res
 
-    def factor(self):
+    def atom(self):
         res = ParseResult()
         tok = self.current_tok
 
-        if tok.type in (TT_PLUS, TT_MINUS):
-            res.register(self.advance())
-            factor = res.register(self.factor())
-            if res.error: return res
-            return res.success(UnaryOpNode(tok, factor))
-
-        elif tok.type in (TT_INT, TT_FLOAT):
+        if tok.type in (TT_INT, TT_FLOAT):
             res.register(self.advance())
             return res.success(NumberNode(tok))
 
@@ -280,30 +278,45 @@ class Parser:
                 return res.failure(InvalidSyntaxError(
                     self.current_tok.pos_start, self.current_tok.pos_end, "Expected ')'")
                 )
-
         return res.failure(InvalidSyntaxError(
-            tok.pos_start, tok.pos_end, "Expected INT or FLOAT")
-            )
+            tok.pos_tart, tok.pos_end, "Expected INT, FLOAT, '+', '-', or '('"))
+
+    def expo(self):
+        return self.bin_op(self.atom, TT_EXP, self.factor)
+
+    def factor(self):
+       res = ParseResult()
+       tok = self.current_tok
+
+       if tok.type in (TT_PLUS, TT_MINUS):
+           res.register(self.advance())
+           factor = res.register(self.factor())
+           if res.error: return res
+           return res.success(UnaryOpNode(tok, factor))
+
+       return self.expo()
 
     def term(self):
-        return self.bin_op(self.factor, (TT_MUL, TT_DIV, TT_EXP))
+        return self.bin_op(self.factor, (TT_MUL, TT_DIV, TT_MODULO))
     
     def expr(self):
         return self.bin_op(self.term, (TT_PLUS, TT_MINUS))
 
-    def bin_op(self, func, ops):
-         res = ParseResult()
-         left = res.register(func())
-         if res.error: return res
+    def bin_op(self, func_a, ops, func_b=None):
+        if func_b == None:
+            func_b = func_a
+        res = ParseResult()
+        left = res.register(func_a())
+        if res.error: return res
 
-         while self.current_tok.type in (ops):
-            op_tok = self.current_tok
-            res.register(self.advance())
-            right = res.register(func())
-            if res.error: return res
-            left = BinOpNode(left, op_tok, right)
+        while self.current_tok.type in (ops):
+           op_tok = self.current_tok
+           res.register(self.advance())
+           right = res.register(func_a())
+           if res.error: return res
+           left = BinOpNode(left, op_tok, right)
 
-         return res.success(left)
+        return res.success(left)
 
 ####################################################################
 #VALUES
@@ -339,6 +352,10 @@ class Number:
         if isinstance(other, Number):
             return Number(self.value ** other.value)
 
+    def modulo(self, other):
+        if isinstance(other, Number):
+            return Number(self.value % other.value)
+
     def __repr__(self):
         return str(self.value)
 
@@ -373,6 +390,8 @@ class Interpreter:
             result = left.divided_by(right)
         elif node.op_tok.type == TT_EXP:
             result = left.exponentiate(right)
+        elif node.op_tok.type == TT_MODULO:
+            result = left.modulo(right)
 
         return result.set_pos(node.pos_start, node.pos_end)
 
