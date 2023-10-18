@@ -1,8 +1,10 @@
 import schweed
+import os
 
+username = os.getenv("USER")
 
 while True:
-    text = input('schweed > ')
+    text = input(f'{username}@schweed > ')
     result, error = schweed.run('<stdin>', text)
 
     if error: print(error.as_string())
